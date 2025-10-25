@@ -1,0 +1,21 @@
+{
+  "materials_project_api_key": "YOUR_MP_API_KEY",
+  "tools": {
+    "potcar_root": "/path/to/vasp/potcars",
+    "vasp_std_executable": "/path/to/vasp_std"
+  },
+  "scheduler": {
+    "submit_command": "qsub",
+    "partition": "week-long",
+    "exclude": "node[1-8]",
+    "nodes": 1,
+    "ntasks_per_node": 48,
+    "export_env": "ALL",
+    "extra_lines": []
+  },
+  "templates": {
+    "job_script": "layer_toolkit/layer_toolkit/resources/job_template.sh",
+    "relax_incar": "layer_toolkit/layer_toolkit/resources/incar_relax.in",
+    "scf_incar": "layer_toolkit/layer_toolkit/resources/incar_scf.in"
+  }
+}
