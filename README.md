@@ -53,6 +53,15 @@ LayerGenerator(settings).run(request)
 
 Bond and ELF analysis helpers live under `layer_toolkit.analysis`.
 
+## Features
+
+- Layer generation routines fetch the requested BCC or HCP prototype from the Materials Project, build relaxed `POSCAR` files with configurable vacuum spacing, and fan out per-layer `relax/` and `scf/` directories populated with `INCAR`, concatenated `POTCAR`, and scheduler-ready `job.pbs` scripts while deduplicating layer requests.
+- Batch scripts are rendered from templates using the JSON config, so scheduler directives (`partition`, `exclude`, extra `#SBATCH` lines) and the VASP executable path are controlled centrally without editing code; generated scripts are marked executable and can be auto-submitted via the configured command (`qsub` by default).
+- Bond analysis utilities read any POSCAR-like file, infer the layer count from vacuum gaps, and tabulate unique in-plane versus interlayer bonds across the unit cell, primitive cell, and a 3×3×1 supercell, merging duplicates within a 0.008 Å tolerance.
+- ELF analysis tools compute maximum ELF values, fractional and Cartesian coordinates of those maxima, average ELF, and the nearest-atom distance for a single ELFCAR, or batch-process `ELFCAR_*` files to produce sorted `elfcar_data.dat` and `elfcar_coords.dat` summaries.
+- JSON configuration supports environment overrides (`MP_API_KEY`, `LAYER_TOOLKIT_CONFIG`) and defines POTCAR search roots, VASP binaries, optional CALYPSO paths, scheduler defaults, and alternate template locations, keeping secrets and cluster-specific paths outside the source tree.
+- Thin wrapper scripts (`2D_layers.py`, `bond_analysis.py`, `elf_analysis.py`, `max_ELF.py`) preserve the original interactive workflows while delegating to the package internals, easing migration for legacy usage.
+
 ## Legacy Script Compatibility
 
 The original scripts (`2D_layers.py`, `bond_analysis.py`, `elf_analysis.py`, `max_ELF.py`) now act as thin wrappers around the new package for backwards compatibility.
