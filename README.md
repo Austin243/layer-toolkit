@@ -1,6 +1,6 @@
 # Layer Toolkit
 
-Layer Toolkit converts the original collection of single-file scripts into a reusable Python package for building layered VASP inputs and analysing electronic localisation function (ELF) and bonding characteristics.
+Layer Toolkit is a reusable Python package for building layered VASP inputs and analysing electronic localisation function (ELF) and bonding characteristics.
 
 ## Installation
 
