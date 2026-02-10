@@ -1,0 +1,9 @@
+cff-version: 1.2.0
+title: Layer Toolkit
+message: "If you use this code, please cite this repository."
+type: software
+authors:
+  - family-names: Ellis
+    given-names: Austin
+repository-code: https://github.com/Austin243/layer-toolkit
+license: MIT
