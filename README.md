@@ -1,6 +1,13 @@
 # Layer Toolkit
 
-Layer Toolkit is a reusable Python package for building layered VASP inputs and analyzing electronic localization function (ELF) and bonding characteristics.
+Layer Toolkit streamlines layered-material VASP workflows by turning common setup and post-processing steps into repeatable CLI operations.
+
+It is designed for studies where you want to generate and compare multiple slab/layer-count variants quickly, while keeping prototype selection and analysis output consistent across runs.
+
+Core workflows:
+- Generate layered BCC/HCP inputs from Materials Project prototypes.
+- Stage `relax/` and `scf/` directories with `POSCAR`, `INCAR`, `POTCAR`, and batch job scripts.
+- Analyze bonding and ELF data, including top-N ELF hotspot locations and nearest-atom distances.
 
 ## Installation
 
@@ -25,6 +32,8 @@ The `layer-toolkit` console script exposes the main workflows:
 - Generate layer inputs
   ```bash
   layer-toolkit --config config.json generate-layers --element Fe --structure bcc --layers 1 2 3
+  layer-toolkit --config config.json generate-layers --element Fe --structure bcc --layers 2 4 --require-stable --max-energy-above-hull 0.02
+  layer-toolkit --config config.json generate-layers --element Fe --structure bcc --layers 3 --material-id mp-13
   ```
 - Analyze bonds in POSCAR-like files
   ```bash
@@ -32,11 +41,21 @@ The `layer-toolkit` console script exposes the main workflows:
   ```
 - Analyze ELF outputs (single file or directory)
   ```bash
-  layer-toolkit analyze-elf --file ELFCAR
-  layer-toolkit analyze-elf --directory ./ --prefix ELFCAR_
+  layer-toolkit analyze-elf --file ELFCAR --top-n 5
+  layer-toolkit analyze-elf --directory ./ --prefix ELFCAR_ --top-n 5 --min-separation-frac 0.08 --hotspots-output elfcar_hotspots.dat
   ```
 
 Each subcommand provides `--help` for detailed options.
+
+Prototype-selection controls for `generate-layers`:
+- `--material-id` targets a specific Materials Project entry directly.
+- `--require-stable` restricts results to stable entries.
+- `--max-energy-above-hull` limits candidates by eV/atom above hull.
+
+Directory-mode outputs for `analyze-elf`:
+- `elfcar_data.dat` (summary metrics)
+- `elfcar_coords.dat` (max-ELF coordinates)
+- `elfcar_hotspots.dat` (top-N hotspot table)
 
 ## Python API
 
@@ -55,9 +74,9 @@ Bond and ELF analysis helpers live under `layer_toolkit.analysis`.
 
 ## Features
 
-- Layer generation routines fetch the requested BCC or HCP prototype from the Materials Project, build relaxed `POSCAR` files with configurable vacuum spacing, and fan out per-layer `relax/` and `scf/` directories populated with `INCAR`, concatenated `POTCAR`, and scheduler-ready `job.pbs` scripts while deduplicating layer requests.
-- Batch scripts are rendered from templates using the JSON config, so scheduler directives (`partition`, `exclude`, extra `#SBATCH` lines) and the VASP executable path are controlled centrally without editing code; generated scripts are marked executable and can be auto-submitted via the configured command (`qsub` by default).
-- Bond analysis utilities read any POSCAR-like file, infer the layer count from vacuum gaps, and tabulate unique in-plane versus interlayer bonds across the unit cell, primitive cell, and a 3×3×1 supercell, merging duplicates within a 0.008 Å tolerance.
-- ELF analysis tools compute maximum ELF values, fractional and Cartesian coordinates of those maxima, average ELF, and the nearest-atom distance for a single ELFCAR, or batch-process `ELFCAR_*` files to produce sorted `elfcar_data.dat` and `elfcar_coords.dat` summaries.
-- JSON configuration supports environment overrides (`MP_API_KEY`, `LAYER_TOOLKIT_CONFIG`) and defines POTCAR search roots, VASP binaries, optional CALYPSO paths, scheduler defaults, and alternate template locations, keeping secrets and cluster-specific paths outside the source tree.
-- Thin wrapper scripts (`2D_layers.py`, `bond_analysis.py`, `elf_analysis.py`, `max_ELF.py`) preserve the original interactive workflows while delegating to the package internals, easing migration for legacy usage.
+- Generates BCC and HCP layered structure inputs from Materials Project prototypes with configurable vacuum spacing and automatic layer-count deduplication.
+- Supports reproducible prototype selection with explicit `--material-id` targeting and optional Materials Project stability/energy-above-hull filters.
+- Creates per-layer `relax/` and `scf/` work directories with ready-to-run `POSCAR`, `INCAR`, `POTCAR`, and batch job scripts.
+- Uses configurable templates and centralized JSON settings for scheduler directives, executable paths, and environment-based overrides.
+- Analyzes POSCAR-like files to report unique in-plane and interlayer bond statistics across unit, primitive, and 3x3x1 supercell views.
+- Analyzes ELFCAR data in single-file (JSON) or batch mode, reporting max/average ELF values and top-N hotspot coordinates with nearest-atom distances.

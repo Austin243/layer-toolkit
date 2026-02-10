@@ -4,7 +4,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from itertools import combinations
 from pathlib import Path
-from typing import Iterable, Sequence
+from typing import Any, Iterable, Mapping, Sequence
 import logging
 import subprocess
 
@@ -32,6 +32,9 @@ class LayerGenerationRequest:
     layer_counts: Sequence[int]
     vacuum_space: float = 25.0
     submit_jobs: bool = True
+    material_id: str | None = None
+    require_stable: bool = False
+    max_energy_above_hull: float | None = None
 
 
 class LayerGenerator:
@@ -65,6 +68,9 @@ class LayerGenerator:
                 layer_count=layer_count,
                 vacuum_space=request.vacuum_space,
                 submit=request.submit_jobs,
+                material_id=request.material_id,
+                require_stable=request.require_stable,
+                max_energy_above_hull=request.max_energy_above_hull,
             )
             created_paths.append(layer_path)
 
@@ -79,6 +85,9 @@ class LayerGenerator:
         layer_count: int,
         vacuum_space: float,
         submit: bool,
+        material_id: str | None,
+        require_stable: bool,
+        max_energy_above_hull: float | None,
     ) -> Path:
         layer_root = self.base_directory / str(layer_count)
         relax_dir = layer_root / "relax"
@@ -106,6 +115,9 @@ class LayerGenerator:
             layer_count=layer_count,
             vacuum_space=vacuum_space,
             api_key=self.settings.materials_project_api_key,
+            material_id=material_id,
+            require_stable=require_stable,
+            max_energy_above_hull=max_energy_above_hull,
         )
         Poscar(structure).write_file(relax_dir / "POSCAR")
 
@@ -148,6 +160,9 @@ def build_layer_structure(
     layer_count: int,
     vacuum_space: float,
     api_key: str | None,
+    material_id: str | None = None,
+    require_stable: bool = False,
+    max_energy_above_hull: float | None = None,
 ) -> Structure:
     """Fetch the base structure and build a layered geometry."""
 
@@ -155,18 +170,49 @@ def build_layer_structure(
         raise RuntimeError(
             "Materials Project API key is required; set it in config.json or MP_API_KEY"
         )
+    if max_energy_above_hull is not None and max_energy_above_hull < 0:
+        raise ValueError("max_energy_above_hull must be >= 0")
 
     spacegroup_number = _STRUCTURE_SPACEGROUPS[structure_type]
+    search_kwargs = _build_summary_search_kwargs(
+        element=element,
+        spacegroup_number=spacegroup_number,
+        material_id=material_id,
+        require_stable=require_stable,
+        max_energy_above_hull=max_energy_above_hull,
+    )
     with MPRester(api_key) as mpr:
-        docs = mpr.summary.search(
-            elements=[element],
-            spacegroup_number=spacegroup_number,
-            fields=["structure"],
-        )
+        docs = mpr.summary.search(**search_kwargs)
     if not docs:
-        raise ValueError(f"No {structure_type} structure found for {element}")
+        raise ValueError(
+            "No Materials Project entries matched the provided criteria for "
+            f"{element} ({structure_type})."
+        )
 
-    initial_structure: Structure = docs[0].structure
+    selected_doc = _select_preferred_doc(docs)
+    selected_material_id = _doc_get(selected_doc, "material_id")
+    selected_energy = _doc_get(selected_doc, "energy_above_hull")
+    selected_stable = _doc_get(selected_doc, "is_stable")
+    selected_spacegroup = _doc_spacegroup_number(selected_doc)
+    if selected_spacegroup is not None and selected_spacegroup != spacegroup_number:
+        _LOGGER.warning(
+            "Selected material %s has spacegroup %s while %s expects %s.",
+            selected_material_id,
+            selected_spacegroup,
+            structure_type,
+            spacegroup_number,
+        )
+
+    _LOGGER.info(
+        "Selected MP prototype %s (E_hull=%s, stable=%s)",
+        selected_material_id,
+        selected_energy,
+        selected_stable,
+    )
+
+    initial_structure = _doc_get(selected_doc, "structure")
+    if not isinstance(initial_structure, Structure):
+        raise RuntimeError("Materials Project response did not include a valid structure object")
 
     atom_indices = range(len(initial_structure))
     distances = [
@@ -194,6 +240,76 @@ def build_layer_structure(
 
     species = [element] * layer_count
     return Structure(new_lattice, species, frac_coords)
+
+
+def _build_summary_search_kwargs(
+    *,
+    element: str,
+    spacegroup_number: int,
+    material_id: str | None,
+    require_stable: bool,
+    max_energy_above_hull: float | None,
+) -> dict[str, Any]:
+    fields = [
+        "material_id",
+        "formula_pretty",
+        "energy_above_hull",
+        "is_stable",
+        "symmetry",
+        "structure",
+    ]
+    kwargs: dict[str, Any] = {"fields": fields}
+
+    if material_id:
+        kwargs["material_ids"] = [material_id]
+    else:
+        kwargs["elements"] = [element]
+        kwargs["spacegroup_number"] = spacegroup_number
+
+    if require_stable:
+        kwargs["is_stable"] = True
+
+    if max_energy_above_hull is not None:
+        kwargs["energy_above_hull"] = (0.0, float(max_energy_above_hull))
+
+    return kwargs
+
+
+def _select_preferred_doc(docs: Sequence[object]) -> object:
+    """Pick a deterministic material from MP query results."""
+
+    if not docs:
+        raise ValueError("No MP documents available for selection")
+    return min(docs, key=_doc_sort_key)
+
+
+def _doc_sort_key(doc: object) -> tuple[float, str]:
+    energy = _doc_get(doc, "energy_above_hull")
+    if energy is None:
+        energy_key = float("inf")
+    else:
+        energy_key = float(energy)
+    material_id = str(_doc_get(doc, "material_id") or "")
+    return (energy_key, material_id)
+
+
+def _doc_spacegroup_number(doc: object) -> int | None:
+    symmetry = _doc_get(doc, "symmetry")
+    if symmetry is None:
+        return None
+    if isinstance(symmetry, Mapping):
+        number = symmetry.get("number")
+    else:
+        number = getattr(symmetry, "number", None)
+    if number is None:
+        return None
+    return int(number)
+
+
+def _doc_get(doc: object, key: str) -> Any:
+    if isinstance(doc, Mapping):
+        return doc.get(key)
+    return getattr(doc, key, None)
 
 
 def submit_job(job_script_path: Path, settings: Settings) -> None:

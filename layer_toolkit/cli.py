@@ -2,13 +2,14 @@
 from __future__ import annotations
 
 import argparse
+from dataclasses import asdict
 import json
 import sys
 from pathlib import Path
 from typing import Iterable, Sequence
 
 from .analysis.bonds import BondAnalysisResult, analyze_poscar
-from .analysis.elf import analyze_directory, analyze_elfcar
+from .analysis.elf import analyze_directory, analyze_elfcar_with_hotspots
 from .config import Settings, load_settings
 from .generation.layers import LayerGenerationRequest, LayerGenerator
 
@@ -54,6 +55,22 @@ def build_parser() -> argparse.ArgumentParser:
         "--no-submit",
         action="store_true",
         help="Generate inputs without submitting jobs",
+    )
+    gen_parser.add_argument(
+        "--material-id",
+        default=None,
+        help="Specific Materials Project material ID to use as the prototype (e.g. mp-13)",
+    )
+    gen_parser.add_argument(
+        "--require-stable",
+        action="store_true",
+        help="Require Materials Project entries marked as stable when selecting a prototype",
+    )
+    gen_parser.add_argument(
+        "--max-energy-above-hull",
+        type=float,
+        default=None,
+        help="Maximum allowed energy above hull in eV/atom for prototype selection",
     )
 
     bonds_parser = subparsers.add_parser("analyze-bonds", help="Analyze bond lengths in POSCAR files")
@@ -106,6 +123,24 @@ def build_parser() -> argparse.ArgumentParser:
         default=Path("elfcar_coords.dat"),
         help="Output file for ELFCAR coordinate summaries when using --directory",
     )
+    elf_parser.add_argument(
+        "--top-n",
+        type=int,
+        default=1,
+        help="Number of ELF hotspots to report per file (default: 1)",
+    )
+    elf_parser.add_argument(
+        "--min-separation-frac",
+        type=float,
+        default=0.05,
+        help="Minimum fractional-coordinate distance between reported hotspots (default: 0.05)",
+    )
+    elf_parser.add_argument(
+        "--hotspots-output",
+        type=Path,
+        default=Path("elfcar_hotspots.dat"),
+        help="Output file for detailed hotspot tables when using --directory",
+    )
 
     return parser
 
@@ -138,6 +173,9 @@ def _handle_generate_layers(settings: Settings, args: argparse.Namespace) -> int
         layer_counts=args.layers,
         vacuum_space=args.vacuum,
         submit_jobs=not args.no_submit,
+        material_id=args.material_id,
+        require_stable=args.require_stable,
+        max_energy_above_hull=args.max_energy_above_hull,
     )
 
     created = generator.run(request)
@@ -170,18 +208,39 @@ def _handle_analyze_bonds(args: argparse.Namespace) -> int:
 
 
 def _handle_analyze_elf(args: argparse.Namespace) -> int:
+    if args.top_n < 1:
+        print("--top-n must be >= 1", file=sys.stderr)
+        return 1
+    if args.min_separation_frac < 0:
+        print("--min-separation-frac must be >= 0", file=sys.stderr)
+        return 1
+
     if args.file:
-        metrics = analyze_elfcar(args.file)
-        print(json.dumps(metrics.__dict__, indent=2))
+        result = analyze_elfcar_with_hotspots(
+            args.file,
+            top_n=args.top_n,
+            min_separation_frac=args.min_separation_frac,
+        )
+        payload = {
+            "metrics": asdict(result.metrics),
+            "hotspots": [asdict(hotspot) for hotspot in result.hotspots],
+        }
+        print(json.dumps(payload, indent=2))
         return 0
 
-    results = analyze_directory(args.directory, prefix=args.prefix)
+    results = analyze_directory(
+        args.directory,
+        prefix=args.prefix,
+        top_n=args.top_n,
+        min_separation_frac=args.min_separation_frac,
+    )
     if not results:
         print("No ELFCAR files found", file=sys.stderr)
         return 1
 
     data_lines = ["Layers\tMaxELF\tDist\tAvgELF\n"]
     coord_lines = ["Layers\tMaxFracCoord\tMaxCartCoord\n"]
+    hotspot_lines = ["Layers\tRank\tELF\tDist\tFracCoord\tCartCoord\n"]
 
     for item in results:
         metrics = item.metrics
@@ -191,10 +250,21 @@ def _handle_analyze_elf(args: argparse.Namespace) -> int:
         frac = "\t".join(f"{value:.5f}" for value in metrics.max_frac_coord)
         cart = "\t".join(f"{value:.5f}" for value in metrics.max_cart_coord)
         coord_lines.append(f"{item.label}\t{frac}\t{cart}\n")
+        for hotspot in item.hotspots:
+            hotspot_frac = ",".join(f"{value:.5f}" for value in hotspot.frac_coord)
+            hotspot_cart = ",".join(f"{value:.5f}" for value in hotspot.cart_coord)
+            hotspot_lines.append(
+                f"{item.label}\t{hotspot.rank}\t{hotspot.elf_value:.5f}\t"
+                f"{hotspot.shortest_distance:.5f}\t{hotspot_frac}\t{hotspot_cart}\n"
+            )
 
     args.data_output.write_text("".join(data_lines), encoding="utf-8")
     args.coords_output.write_text("".join(coord_lines), encoding="utf-8")
-    print(f"ELF metrics written to {args.data_output} and {args.coords_output}")
+    args.hotspots_output.write_text("".join(hotspot_lines), encoding="utf-8")
+    print(
+        "ELF metrics written to "
+        f"{args.data_output}, {args.coords_output}, and {args.hotspots_output}"
+    )
     return 0
 
 
