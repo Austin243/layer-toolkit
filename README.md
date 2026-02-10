@@ -1,6 +1,6 @@
 # Layer Toolkit
 
-Layer Toolkit is a reusable Python package for building layered VASP inputs and analysing electronic localisation function (ELF) and bonding characteristics.
+Layer Toolkit is a reusable Python package for building layered VASP inputs and analyzing electronic localization function (ELF) and bonding characteristics.
 
 ## Installation
 
@@ -26,11 +26,11 @@ The `layer-toolkit` console script exposes the main workflows:
   ```bash
   layer-toolkit --config config.json generate-layers --element Fe --structure bcc --layers 1 2 3
   ```
-- Analyse bonds in POSCAR-like files
+- Analyze bonds in POSCAR-like files
   ```bash
   layer-toolkit analyze-bonds --input ./structures --pattern '*.vasp'
   ```
-- Analyse ELF outputs (single file or directory)
+- Analyze ELF outputs (single file or directory)
   ```bash
   layer-toolkit analyze-elf --file ELFCAR
   layer-toolkit analyze-elf --directory ./ --prefix ELFCAR_
@@ -61,7 +61,3 @@ Bond and ELF analysis helpers live under `layer_toolkit.analysis`.
 - ELF analysis tools compute maximum ELF values, fractional and Cartesian coordinates of those maxima, average ELF, and the nearest-atom distance for a single ELFCAR, or batch-process `ELFCAR_*` files to produce sorted `elfcar_data.dat` and `elfcar_coords.dat` summaries.
 - JSON configuration supports environment overrides (`MP_API_KEY`, `LAYER_TOOLKIT_CONFIG`) and defines POTCAR search roots, VASP binaries, optional CALYPSO paths, scheduler defaults, and alternate template locations, keeping secrets and cluster-specific paths outside the source tree.
 - Thin wrapper scripts (`2D_layers.py`, `bond_analysis.py`, `elf_analysis.py`, `max_ELF.py`) preserve the original interactive workflows while delegating to the package internals, easing migration for legacy usage.
-
-## Legacy Script Compatibility
-
-The original scripts (`2D_layers.py`, `bond_analysis.py`, `elf_analysis.py`, `max_ELF.py`) now act as thin wrappers around the new package for backwards compatibility.
